@@ -55,24 +55,46 @@ VARIANT1_CONFIG = {
     "label": "variant1_hybrid",
 }
 
-# Variant 3 — Sprint 3: Nuanced abstain prompt (3-tier)
-VARIANT3_CONFIG = {
+# Variant 2 — Sprint 3: Nuanced abstain prompt (3-tier)
+VARIANT2_CONFIG = {
     "retrieval_mode": "dense",
     "top_k_search": 10,
     "top_k_select": 3,
     "use_rerank": False,
     "prompt_version": "v3",       # Prompt mới — biến duy nhất thay đổi là prompt_version
-    "label": "variant3_nuanced_abstain",
+    "label": "variant2_nuanced_abstain",
+}
+
+# Variant 3 — prompt v2 + hybrid retrieval
+VARIANT3_CONFIG = {
+    "retrieval_mode": "hybrid",
+    "top_k_search": 10,
+    "top_k_select": 3,
+    "use_rerank": False,
+    "prompt_version": "v3",
+    "label": "variant3_hybrid_nuanced",
+}
+
+# Variant 4 — prompt v2 + hybrid + rerank (cross-encoder)
+VARIANT4_CONFIG = {
+    "retrieval_mode": "hybrid",
+    "top_k_search": 10,
+    "top_k_select": 3,
+    "use_rerank": True,
+    "prompt_version": "v3",
+    "label": "variant4_hybrid_rerank",
 }
 
 # Danh sách tất cả configs để chạy và so sánh
-ALL_CONFIGS = [BASELINE_CONFIG, VARIANT1_CONFIG, VARIANT3_CONFIG]
+ALL_CONFIGS = [BASELINE_CONFIG, VARIANT1_CONFIG, VARIANT2_CONFIG, VARIANT3_CONFIG, VARIANT4_CONFIG]
 
 # Map tên ngắn → config (dùng cho --run flag)
 CONFIG_MAP = {
     "baseline": BASELINE_CONFIG,
     "variant1": VARIANT1_CONFIG,
+    "variant2": VARIANT2_CONFIG,
     "variant3": VARIANT3_CONFIG,
+    "variant4": VARIANT4_CONFIG,
 }
 
 
@@ -505,7 +527,7 @@ def compare_ab(
         csv_path = RESULTS_DIR / output_csv
         all_rows = [r for rows in results_by_label.values() for r in rows]
         if all_rows:
-            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.DictWriter(f, fieldnames=all_rows[0].keys())
                 writer.writeheader()
                 writer.writerows(all_rows)
@@ -562,17 +584,27 @@ def _save_scorecard(results: List[Dict], config: Dict) -> Path:
     """Lưu scorecard ra file theo label, trả về path."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     label = config["label"]
+
+    # Save markdown summary
     md = generate_scorecard_summary(results, label)
     path = RESULTS_DIR / f"scorecard_{label}.md"
     path.write_text(md, encoding="utf-8")
     print(f"Scorecard lưu tại: {path}")
+
+    # Save full CSV with answers (for later merging)
+    csv_path = RESULTS_DIR / f"scorecard_{label}.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=results[0].keys())
+        writer.writeheader()
+        writer.writerows(results)
+
     return path
 
 
 def _load_results_from_csv(csv_path: Path) -> Dict[str, List[Dict]]:
     """Load kết quả đã lưu từ ab_comparison CSV, trả về dict label → rows."""
     results: Dict[str, List[Dict]] = {}
-    with open(csv_path, newline="", encoding="utf-8") as f:
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     for r in rows:
         for m in ["faithfulness", "relevance", "context_recall", "completeness"]:
@@ -599,7 +631,9 @@ if __name__ == "__main__":
             "all        — chạy tất cả configs rồi compare (default)\n"
             "baseline   — chỉ chạy baseline_dense\n"
             "variant1   — chỉ chạy variant1_hybrid\n"
-            "variant3   — chỉ chạy variant3_nuanced_abstain\n"
+            "variant2   — chỉ chạy variant2_nuanced_abstain\n"
+            "variant3   — chỉ chạy variant3_hybrid_nuanced\n"
+            "variant4   — chỉ chạy variant4_hybrid_rerank\n"
             "compare    — load CSV đã lưu và in bảng so sánh (không gọi API)\n"
         ),
     )

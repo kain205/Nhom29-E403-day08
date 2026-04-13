@@ -87,6 +87,9 @@ def preprocess_document(raw_text: str, filepath: str) -> Dict[str, Any]:
                 # Gặp section heading đầu tiên → kết thúc header
                 header_done = True
                 content_lines.append(line)
+            elif line.startswith("Ghi chú:") or line.startswith("Note:"):
+                # Giữ lại ghi chú (alias, tên cũ, v.v.) vào content để có thể search
+                content_lines.append(line)
             elif line.strip() == "" or line.isupper():
                 # Dòng tên tài liệu (toàn chữ hoa) hoặc dòng trống
                 continue
@@ -332,7 +335,9 @@ def list_chunks(db_dir: Path = CHROMA_DB_DIR, n: int = 5) -> None:
             print(f"[Chunk {i+1}]")
             print(f"  Source: {meta.get('source', 'N/A')}")
             print(f"  Section: {meta.get('section', 'N/A')}")
+            print(f"  Department: {meta.get('department', 'N/A')}")
             print(f"  Effective Date: {meta.get('effective_date', 'N/A')}")
+            print(f"  Access: {meta.get('access', 'N/A')}")
             print(f"  Text preview: {doc[:120]}...")
             print()
     except Exception as e:

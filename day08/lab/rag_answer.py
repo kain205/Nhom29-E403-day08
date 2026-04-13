@@ -253,9 +253,40 @@ def rerank(
     - Dense/hybrid trả về nhiều chunk nhưng có noise
     - Muốn chắc chắn chỉ 3-5 chunk tốt nhất vào prompt
     """
-    # TODO Sprint 3: Implement rerank
-    # Tạm thời trả về top_k đầu tiên (không rerank)
-    return candidates[:top_k]
+    import json as _json
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    chunks_text = "\n\n".join(
+        f"[{i+1}] {c['metadata'].get('source','?')} | {c['metadata'].get('section','')}\n{c['text'][:300]}"
+        for i, c in enumerate(candidates)
+    )
+    prompt = f"""You are a relevance ranker. Given the query and a list of retrieved chunks, return the indices of the top {top_k} most relevant chunks in order of relevance (most relevant first).
+
+Query: {query}
+
+Chunks:
+{chunks_text}
+
+Respond ONLY with a JSON array of 1-based indices, e.g. [2, 5, 1]"""
+
+    try:
+        resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=50,
+        )
+        indices = _json.loads(resp.choices[0].message.content)
+        result = []
+        for idx in indices[:top_k]:
+            if 1 <= idx <= len(candidates):
+                chunk = dict(candidates[idx - 1])
+                chunk["rerank_score"] = top_k - len(result)
+                result.append(chunk)
+        return result if result else candidates[:top_k]
+    except Exception:
+        return candidates[:top_k]
 
 
 # =============================================================================
@@ -348,13 +379,14 @@ You are an internal CS/IT Helpdesk assistant. Your purpose is to answer policy a
 # Instructions
 - Answer ONLY using information explicitly stated in the Context above
 - If the question targets a specific category, tier, or exception (e.g. VIP, Level 3, P1), explicitly address THAT category — do not substitute it with the general rule
+- If the context contains the standard/general policy but NOT the specific exception asked about, state the standard policy AND explicitly say the exception is not documented
 - If multiple policies or conditions apply, include ALL of them in your answer
 - Cite each claim with its source number in brackets, e.g. [1]
 
 # Constraints
 - Tier 1 — Answer: context explicitly addresses the question → answer with citations
-- Tier 2 — Partial answer: context has related standard policy but NOT the specific exception/tier asked about (e.g. VIP, premium) → state the standard policy that applies and explicitly note the exception is not documented. Do NOT use the abstain phrase.
-- Tier 3 — Full abstain: the topic is completely absent from all retrieved context → respond EXACTLY: "Không đủ dữ liệu để trả lời câu hỏi này." Then add a one-sentence next-step suggestion (e.g., liên hệ IT Helpdesk).
+- Tier 2 — Partial answer: context has related standard policy but NOT the specific exception/tier asked about (e.g. VIP, premium, special case) → MUST state the standard policy that applies AND explicitly note "Không có quy trình đặc biệt nào được ghi nhận cho [exception]." Do NOT use the full abstain phrase.
+- Tier 3 — Full abstain: the topic is completely absent from all retrieved context → respond EXACTLY: "Không đủ dữ liệu để trả lời câu hỏi này." Then add a one-sentence next-step suggestion.
 - Do NOT infer or extrapolate beyond what is written in the Context
 
 # Output Format
@@ -369,10 +401,8 @@ Answer:"""
 
 def build_grounded_prompt(query: str, context_block: str, version: str = "v3") -> str:
     """
-    Xây dựng grounded prompt.
-
-    version="v1" — Baseline (Sprint 2): prompt đơn giản, dùng để re-run baseline đúng.
-    version="v3" — Variant 3 (Sprint 3): structured prompt với 3-tier abstain logic.
+    version="v1" — Baseline: prompt đơn giản.
+    version="v3" / "v2" / "v4" — Nuanced abstain prompt (3-tier).
     """
     if version == "v1":
         return BASELINE_PROMPT_TEMPLATE.format(query=query, context_block=context_block)
@@ -496,7 +526,7 @@ def rag_answer(
     prompt = build_grounded_prompt(query, context_block, version=prompt_version)
 
     if verbose:
-        print(f"\n[RAG] Prompt:\n{prompt[:500]}...\n")
+        print(f"\n[RAG] Prompt:\n{prompt}\n")
 
     # --- Bước 4: Generate ---
     answer = call_llm(prompt)
