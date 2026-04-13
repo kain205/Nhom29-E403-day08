@@ -45,15 +45,34 @@ BASELINE_CONFIG = {
     "label": "baseline_dense",
 }
 
-# Cấu hình variant (Sprint 3 — điều chỉnh theo lựa chọn của nhóm)
-# TODO Sprint 4: Cập nhật VARIANT_CONFIG theo variant nhóm đã implement
-VARIANT_CONFIG = {
-    "retrieval_mode": "dense",    # Giữ nguyên như baseline — biến duy nhất thay đổi là prompt
+# Variant 1 — Sprint 3: Hybrid retrieval (BM25 + RRF)
+VARIANT1_CONFIG = {
+    "retrieval_mode": "hybrid",   # dense_weight=0.6, sparse_weight=0.4, RRF k=60
     "top_k_search": 10,
     "top_k_select": 3,
     "use_rerank": False,
-    "prompt_version": "v3",
+    "prompt_version": "v1",       # Prompt giữ nguyên — biến duy nhất thay đổi là retrieval_mode
+    "label": "variant1_hybrid",
+}
+
+# Variant 3 — Sprint 3: Nuanced abstain prompt (3-tier)
+VARIANT3_CONFIG = {
+    "retrieval_mode": "dense",
+    "top_k_search": 10,
+    "top_k_select": 3,
+    "use_rerank": False,
+    "prompt_version": "v3",       # Prompt mới — biến duy nhất thay đổi là prompt_version
     "label": "variant3_nuanced_abstain",
+}
+
+# Danh sách tất cả configs để chạy và so sánh
+ALL_CONFIGS = [BASELINE_CONFIG, VARIANT1_CONFIG, VARIANT3_CONFIG]
+
+# Map tên ngắn → config (dùng cho --run flag)
+CONFIG_MAP = {
+    "baseline": BASELINE_CONFIG,
+    "variant1": VARIANT1_CONFIG,
+    "variant3": VARIANT3_CONFIG,
 }
 
 
@@ -402,83 +421,94 @@ def run_scorecard(
 # =============================================================================
 
 def compare_ab(
-    baseline_results: List[Dict],
-    variant_results: List[Dict],
+    results_by_label: Dict[str, List[Dict]],
     output_csv: Optional[str] = None,
 ) -> None:
     """
-    So sánh baseline vs variant theo từng câu hỏi và tổng thể.
+    So sánh N configs cạnh nhau theo metric và per-question.
 
-    TODO Sprint 4:
-    Điền vào bảng sau để trình bày trong báo cáo:
-
-    | Metric          | Baseline | Variant | Delta |
-    |-----------------|----------|---------|-------|
-    | Faithfulness    |   ?/5    |   ?/5   |  +/?  |
-    | Answer Relevance|   ?/5    |   ?/5   |  +/?  |
-    | Context Recall  |   ?/5    |   ?/5   |  +/?  |
-    | Completeness    |   ?/5    |   ?/5   |  +/?  |
-
-    Câu hỏi cần trả lời:
-    - Variant tốt hơn baseline ở câu nào? Vì sao?
-    - Biến nào (chunking / hybrid / rerank) đóng góp nhiều nhất?
-    - Có câu nào variant lại kém hơn baseline không? Tại sao?
+    Args:
+        results_by_label: {"baseline_dense": [...], "variant1_hybrid": [...], ...}
+        output_csv: tên file CSV để lưu, None = không lưu
     """
     metrics = ["faithfulness", "relevance", "context_recall", "completeness"]
+    labels = list(results_by_label.keys())
+    col_w = 12
 
-    print(f"\n{'='*70}")
-    print("A/B Comparison: Baseline vs Variant")
-    print('='*70)
-    print(f"{'Metric':<20} {'Baseline':>10} {'Variant':>10} {'Delta':>8}")
-    print("-" * 55)
+    print(f"\n{'='*80}")
+    print("Comparison: " + " vs ".join(labels))
+    print('='*80)
 
-    for metric in metrics:
-        b_scores = [r[metric] for r in baseline_results if r[metric] is not None]
-        v_scores = [r[metric] for r in variant_results if r[metric] is not None]
+    # --- Average scores ---
+    avgs: Dict[str, Dict[str, Any]] = {}
+    for label, rows in results_by_label.items():
+        avgs[label] = {}
+        for m in metrics:
+            scores = [r[m] for r in rows if r.get(m) is not None]
+            avgs[label][m] = sum(scores) / len(scores) if scores else None
 
-        b_avg = sum(b_scores) / len(b_scores) if b_scores else None
-        v_avg = sum(v_scores) / len(v_scores) if v_scores else None
-        delta = (v_avg - b_avg) if (b_avg and v_avg) else None
+    # Header
+    header = f"{'Metric':<22}" + "".join(f"{lb:>{col_w}}" for lb in labels)
+    # Delta columns vs baseline (first label)
+    baseline_label = labels[0]
+    for lb in labels[1:]:
+        header += f"  Δ{lb[:8]:>8}"
+    print(header)
+    print("-" * len(header))
 
-        b_str = f"{b_avg:.2f}" if b_avg else "N/A"
-        v_str = f"{v_avg:.2f}" if v_avg else "N/A"
-        d_str = f"{delta:+.2f}" if delta else "N/A"
+    for m in metrics:
+        row = f"{m:<22}"
+        for lb in labels:
+            val = avgs[lb][m]
+            row += f"{(f'{val:.2f}') if val is not None else 'N/A':>{col_w}}"
+        for lb in labels[1:]:
+            b_val = avgs[baseline_label][m]
+            v_val = avgs[lb][m]
+            if b_val is not None and v_val is not None:
+                d = v_val - b_val
+                row += f"  {d:>+8.2f}"
+            else:
+                row += f"  {'N/A':>8}"
+        print(row)
 
-        print(f"{metric:<20} {b_str:>10} {v_str:>10} {d_str:>8}")
+    # --- Per-question ---
+    print(f"\n{'Câu':<6}", end="")
+    for lb in labels:
+        print(f"  {lb[:18]:<20}", end="")
+    print(f"  {'Best':<12}")
+    print("-" * (6 + len(labels) * 22 + 14))
 
-    # Per-question comparison
-    print(f"\n{'Câu':<6} {'Baseline F/R/Rc/C':<22} {'Variant F/R/Rc/C':<22} {'Better?':<10}")
-    print("-" * 65)
+    # Collect all question ids from first label
+    all_rows_by_id: Dict[str, Dict[str, Any]] = {}
+    for label, rows in results_by_label.items():
+        for r in rows:
+            qid = r["id"]
+            if qid not in all_rows_by_id:
+                all_rows_by_id[qid] = {}
+            all_rows_by_id[qid][label] = r
 
-    b_by_id = {r["id"]: r for r in baseline_results}
-    for v_row in variant_results:
-        qid = v_row["id"]
-        b_row = b_by_id.get(qid, {})
+    for qid in sorted(all_rows_by_id.keys()):
+        print(f"{qid:<6}", end="")
+        totals = {}
+        for lb in labels:
+            r = all_rows_by_id[qid].get(lb, {})
+            score_str = "/".join(str(r.get(m, "?")) for m in metrics)
+            totals[lb] = sum(r.get(m, 0) or 0 for m in metrics)
+            print(f"  {score_str:<20}", end="")
+        best = max(totals, key=lambda lb: totals[lb])
+        all_same = len(set(totals.values())) == 1
+        print(f"  {'Tie' if all_same else best:<12}")
 
-        b_scores_str = "/".join([
-            str(b_row.get(m, "?")) for m in metrics
-        ])
-        v_scores_str = "/".join([
-            str(v_row.get(m, "?")) for m in metrics
-        ])
-
-        # So sánh đơn giản
-        b_total = sum(b_row.get(m, 0) or 0 for m in metrics)
-        v_total = sum(v_row.get(m, 0) or 0 for m in metrics)
-        better = "Variant" if v_total > b_total else ("Baseline" if b_total > v_total else "Tie")
-
-        print(f"{qid:<6} {b_scores_str:<22} {v_scores_str:<22} {better:<10}")
-
-    # Export to CSV
+    # --- Export CSV (all configs combined) ---
     if output_csv:
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         csv_path = RESULTS_DIR / output_csv
-        combined = baseline_results + variant_results
-        if combined:
+        all_rows = [r for rows in results_by_label.values() for r in rows]
+        if all_rows:
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=combined[0].keys())
+                writer = csv.DictWriter(f, fieldnames=all_rows[0].keys())
                 writer.writeheader()
-                writer.writerows(combined)
+                writer.writerows(all_rows)
             print(f"\nKết quả đã lưu vào: {csv_path}")
 
 
@@ -528,71 +558,97 @@ Generated: {timestamp}
 # MAIN — Chạy evaluation
 # =============================================================================
 
+def _save_scorecard(results: List[Dict], config: Dict) -> Path:
+    """Lưu scorecard ra file theo label, trả về path."""
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    label = config["label"]
+    md = generate_scorecard_summary(results, label)
+    path = RESULTS_DIR / f"scorecard_{label}.md"
+    path.write_text(md, encoding="utf-8")
+    print(f"Scorecard lưu tại: {path}")
+    return path
+
+
+def _load_results_from_csv(csv_path: Path) -> Dict[str, List[Dict]]:
+    """Load kết quả đã lưu từ ab_comparison CSV, trả về dict label → rows."""
+    results: Dict[str, List[Dict]] = {}
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        for m in ["faithfulness", "relevance", "context_recall", "completeness"]:
+            r[m] = int(r[m]) if r.get(m) and r[m] not in ("", "None") else None
+        label = r["config_label"]
+        results.setdefault(label, []).append(r)
+    return results
+
+
 if __name__ == "__main__":
+    import argparse
+
+    valid_run_choices = ["all", "compare"] + list(CONFIG_MAP.keys())
+
+    parser = argparse.ArgumentParser(
+        description="RAG Evaluation Scorecard",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "--run",
+        choices=valid_run_choices,
+        default="all",
+        help=(
+            "all        — chạy tất cả configs rồi compare (default)\n"
+            "baseline   — chỉ chạy baseline_dense\n"
+            "variant1   — chỉ chạy variant1_hybrid\n"
+            "variant3   — chỉ chạy variant3_nuanced_abstain\n"
+            "compare    — load CSV đã lưu và in bảng so sánh (không gọi API)\n"
+        ),
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
-    print("Sprint 4: Evaluation & Scorecard")
+    print(f"Sprint 4: Evaluation & Scorecard  [--run {args.run}]")
     print("=" * 60)
 
-    # Kiểm tra test questions
+    # Load test questions
     print(f"\nLoading test questions từ: {TEST_QUESTIONS_PATH}")
     try:
         with open(TEST_QUESTIONS_PATH, "r", encoding="utf-8") as f:
             test_questions = json.load(f)
         print(f"Tìm thấy {len(test_questions)} câu hỏi")
-
-        # In preview
         for q in test_questions[:3]:
             print(f"  [{q['id']}] {q['question']} ({q['category']})")
         print("  ...")
-
     except FileNotFoundError:
         print("Không tìm thấy file test_questions.json!")
         test_questions = []
 
-    # --- Chạy Baseline ---
-    print("\n--- Chạy Baseline ---")
-    print("Lưu ý: Cần hoàn thành Sprint 2 trước khi chạy scorecard!")
-    try:
-        baseline_results = run_scorecard(
-            config=BASELINE_CONFIG,
-            test_questions=test_questions,
-            verbose=True,
-        )
+    AB_CSV = "ab_comparison_all.csv"
+    results_by_label: Dict[str, List[Dict]] = {}
 
-        # Save scorecard — dùng label làm filename để không overwrite
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        label = BASELINE_CONFIG["label"]
-        baseline_md = generate_scorecard_summary(baseline_results, label)
-        scorecard_path = RESULTS_DIR / f"scorecard_{label}.md"
-        scorecard_path.write_text(baseline_md, encoding="utf-8")
-        print(f"\nScorecard lưu tại: {scorecard_path}")
+    if args.run == "compare":
+        # Load từ CSV đã lưu, không chạy lại pipeline
+        csv_path = RESULTS_DIR / AB_CSV
+        if not csv_path.exists():
+            print(f"Chưa có {AB_CSV} — chạy --run all trước.")
+        else:
+            results_by_label = _load_results_from_csv(csv_path)
+    elif args.run == "all":
+        configs_to_run = ALL_CONFIGS
+    else:
+        configs_to_run = [CONFIG_MAP[args.run]]
 
-    except NotImplementedError:
-        print("Pipeline chưa implement. Hoàn thành Sprint 2 trước.")
-        baseline_results = []
+    if args.run != "compare":
+        for config in configs_to_run:
+            print(f"\n--- Chạy: {config['label']} ---")
+            try:
+                res = run_scorecard(config=config, test_questions=test_questions, verbose=True)
+                _save_scorecard(res, config)
+                results_by_label[config["label"]] = res
+            except NotImplementedError:
+                print(f"Pipeline chưa implement cho config: {config['label']}")
 
-    # --- Chạy Variant ---
-    print(f"\n--- Chạy Variant ({VARIANT_CONFIG['label']}) ---")
-    try:
-        variant_results = run_scorecard(
-            config=VARIANT_CONFIG,
-            test_questions=test_questions,
-            verbose=True,
-        )
-        label = VARIANT_CONFIG["label"]
-        variant_md = generate_scorecard_summary(variant_results, label)
-        variant_path = RESULTS_DIR / f"scorecard_{label}.md"
-        variant_path.write_text(variant_md, encoding="utf-8")
-        print(f"\nScorecard variant lưu tại: {variant_path}")
-    except NotImplementedError:
-        print("Pipeline chưa implement.")
-        variant_results = []
-
-    # --- A/B Comparison ---
-    if baseline_results and variant_results:
-        csv_name = f"ab_{BASELINE_CONFIG['label']}_vs_{VARIANT_CONFIG['label']}.csv"
-        compare_ab(
-            baseline_results,
-            variant_results,
-            output_csv=csv_name,
-        )
+    # --- So sánh nếu có từ 2 configs trở lên ---
+    if len(results_by_label) >= 2:
+        compare_ab(results_by_label, output_csv=AB_CSV)
+    elif len(results_by_label) == 1:
+        print("\n(Chỉ có 1 config — bỏ qua compare. Chạy --run all để so sánh.)")
