@@ -3,6 +3,11 @@
 **Course:** AI in Action – Phase 1 · VinUniversity 2026
 **Repo:** RAG → Multi-Agent → Data Pipeline (Day 08 · 09 · 10)
 
+| Thành viên | MSSV |
+|------------|------|
+| Nguyễn Bình Thành | 2A202600138 |
+| Hàn Quang Hiếu | 2A202600056 |
+
 ---
 
 ## Day 08 — RAG Pipeline
