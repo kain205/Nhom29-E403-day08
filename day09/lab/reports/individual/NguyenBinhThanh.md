@@ -26,27 +26,23 @@ Tôi phụ trách Sprint 1 và Sprint 2 — toàn bộ orchestration layer và w
 
 ## 2. Tôi đã ra một quyết định kỹ thuật gì?
 
-**Quyết định:** Thiết kế `build_graph` theo Option A (Python thuần, không dùng LangGraph) với pre-fetch retrieval trước policy worker.
+**Quyết định:** Giảm số chunk trong ChromaDB từ ~600 xuống ~150 để retrieval phân biệt được các section khác nhau.
 
-Khi implement graph, tôi có 2 lựa chọn: dùng LangGraph `StateGraph` với conditional edges (đúng chuẩn), hoặc implement bằng Python if/else đơn giản. Tôi chọn Python thuần vì lab chỉ có 4 giờ và LangGraph có learning curve — thêm dependency không cần thiết khi logic routing đơn giản.
+Với 600 chunk, mọi query đều trả về kết quả gần giống nhau — retrieval không phân biệt được "refund section" với "warranty section" hay "access section". Chunk quá nhỏ và nhiều khiến embedding space bị loãng, các vector nằm gần nhau hơn và làm giảm recall precision.
 
-Quyết định quan trọng hơn là pre-fetch chunks trước khi policy worker chạy:
+**Lý do:** Chunk lớn hơn giúp mỗi chunk chứa đủ context để embedding capture được topic boundary, từ đó retrieval trả về đúng section theo từng loại câu hỏi.
 
-```python
-elif route == "policy_tool_worker":
-    state = retrieval_worker_node(state)   # pre-fetch
-    state = policy_tool_worker_node(state) # analyze với chunks có sẵn
-```
-
-**Lý do:** Policy worker cần evidence từ docs để phân tích — nếu không có chunks, LLM không có context để kết luận. Pre-fetch đảm bảo policy worker luôn có data.
-
-**Trade-off đã chấp nhận:** Pre-fetch làm MCP `search_kb` không bao giờ được trigger (vì `not chunks` luôn False). Đây là trade-off latency vs MCP usage — chấp nhận được vì ChromaDB retrieval nhanh hơn MCP HTTP call.
+**Trade-off đã chấp nhận:** Chunk lớn hơn dùng nhiều token hơn per query — chấp nhận được vì corpus nhỏ (policy manual, không phải large-scale document store).
 
 **Bằng chứng từ trace:**
 
 ```
-workers_called: ["retrieval_worker", "policy_tool_worker", "synthesis_worker"]
-# retrieval luôn chạy trước policy_tool trong mọi 15 traces
+# Trước (600 chunks): mọi query trả về chunk từ cùng 1 section
+retrieved_chunks[*].metadata.section = "general_policy"  # dù query về refund hay access
+
+# Sau (~150 chunks): retrieval phân biệt được section
+retrieved_chunks[0].metadata.section = "refund_policy"   # query về refund
+retrieved_chunks[0].metadata.section = "access_policy"   # query về access
 ```
 
 ---
@@ -83,7 +79,7 @@ final_answer: "Yêu cầu hoàn tiền của khách hàng không được chấp
 
 **Tôi làm tốt nhất ở điểm nào?**
 
-Thiết kế `AgentState` và worker contracts rõ ràng từ đầu. Việc define đầy đủ fields và types trong `AgentState` giúp Hiếu implement MCP integration mà không cần hỏi tôi về data format. Standalone test cho từng worker cũng giúp debug nhanh khi có vấn đề.
+Hoàn thiện Sprint 1 và Sprint 2 cực kỳ nhanh — chỉ trong 1 giờ đã có thể bàn giao toàn bộ orchestration layer cho nhóm tiếp tục. Việc define rõ `AgentState` và `worker_contracts.yaml` từ đầu giúp Hiếu implement MCP integration mà không cần đợi hoặc hỏi về data format.
 
 **Tôi làm chưa tốt hoặc còn yếu ở điểm nào?**
 
@@ -101,4 +97,4 @@ Tôi cần Hiếu implement `mcp_server.py` để test `_call_mcp_tool` trong po
 
 ## 5. Nếu có thêm 2 giờ, tôi sẽ làm gì?
 
-Tôi sẽ thêm LLM classifier cho supervisor thay vì keyword matching. Trace của q12 cho thấy supervisor trigger "flash sale" keyword trong task ("không phải Flash Sale") — keyword matching không hiểu negation. LLM classifier với prompt "classify task type: refund_request / access_request / info_query / unknown_error" sẽ chính xác hơn và xử lý được edge cases mà keyword matching bỏ sót.
+Tôi sẽ dành thời gian hiểu sâu hơn từng phần trong hệ thống — đặc biệt là MCP server và evaluation pipeline do Hiếu implement trong Sprint 3 và Sprint 4. Hiện tại tôi còn phụ thuộc vào những phần đó và chưa hiểu hết toàn bộ luồng end-to-end. Với hiểu biết đầy đủ hơn, tôi có thể cải thiện integration giữa policy worker và MCP tool một cách tối ưu hơn thay vì chỉ để TODO mock.
