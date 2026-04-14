@@ -107,6 +107,10 @@ def supervisor_node(state: AgentState) -> AgentState:
     policy_matched = [kw for kw in policy_keywords if kw in task]
     sla_matched = [kw for kw in sla_keywords if kw in task]
 
+    # Multi-hop: nếu có cả policy VÀ SLA keywords → tăng top_k để lấy đủ context
+    if policy_matched and sla_matched:
+        state["retrieval_top_k"] = 8
+
     if "err-" in task and not policy_matched and not sla_matched:
         route = "human_review"
         route_reason = "unknown error code with no policy/SLA context → escalate to human"

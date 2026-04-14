@@ -52,7 +52,8 @@ Quy tắc:
 - Nếu không đủ thông tin để quyết định → policy_applies=null, ambiguous=true.
 - exceptions_found CHỈ chứa lý do policy TỪ CHỐI request (không được hoàn tiền, không được cấp quyền).
 - KHÔNG liệt kê SLA rules, escalation procedures, quy trình xử lý vào exceptions_found.
-- Nếu policy_version_note có nội dung VÀ không có tài liệu của version đó trong context → policy_applies=null, ambiguous=true. KHÔNG được kết luận dựa trên version sai.
+- Nếu policy_version_note có nội dung VÀ không có tài liệu của version đó trong context → policy_applies=null, ambiguous=true. KHÔNG được kết luận dựa trên version sai. KHÔNG được nói "không được hoàn tiền" hay bất kỳ kết luận nào khi thiếu tài liệu đúng version.
+- Nếu đơn hàng được đặt TRƯỚC ngày hiệu lực của policy trong context → policy_applies=null, ambiguous=true, policy_version_note phải ghi rõ version nào áp dụng và version đó không có trong tài liệu. TUYỆT ĐỐI không kết luận được/không được.
 - Nếu task liên quan đến cấp quyền access level cụ thể (level 1/2/3) → ưu tiên gọi "check_access_permission" để xác nhận emergency bypass, KHÔNG dùng "get_ticket_info" cho mục đích này.
 - Nếu cần thông tin real-time (ticket status, access permission) → set needs_more_info.required=true.
   Dùng đúng tên tool và tên parameter từ danh sách MCP TOOLS AVAILABLE được cung cấp trong message.

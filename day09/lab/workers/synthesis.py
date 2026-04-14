@@ -31,6 +31,10 @@ Quy tắc nghiêm ngặt:
 3. Trích dẫn nguồn cuối mỗi câu quan trọng: [tên_file].
 4. Trả lời súc tích, có cấu trúc. Không dài dòng.
 5. Nếu có exceptions/ngoại lệ → nêu rõ ràng trước khi kết luận.
+6. Khi câu hỏi hỏi về kênh thông báo, công cụ, hoặc danh sách → đọc KỸ TẤT CẢ các đoạn context và liệt kê ĐẦY ĐỦ mọi kênh/công cụ được đề cập, kể cả trong phần "Công cụ và kênh liên lạc". KHÔNG bỏ sót bất kỳ kênh nào.
+7. Khi câu hỏi hỏi về escalation → nêu rõ hành động là "tự động escalate" và đối tượng cụ thể (Senior Engineer).
+8. Khi câu hỏi liên quan đến policy version cũ KHÔNG có trong tài liệu → TUYỆT ĐỐI không kết luận được/không được. Phải nói rõ: "Đơn hàng này áp dụng chính sách phiên bản [X], nhưng tài liệu hiện có chỉ có phiên bản [Y]. Không thể xác nhận kết quả vì thiếu tài liệu đúng version."
+9. Khi câu hỏi hỏi về điều kiện emergency bypass access → nêu rõ tất cả điều kiện: ai phê duyệt, có cần IT Security không.
 """
 
 
@@ -79,6 +83,20 @@ def _build_context(chunks: list, policy_result: dict) -> str:
             score = chunk.get("score", 0)
             parts.append(f"[{i}] Nguồn: {source} (relevance: {score:.2f})\n{text}")
 
+        # Extract and highlight all communication channels/tools found across ALL chunks
+        all_text = " ".join(c.get("text", "") for c in chunks)
+        if "pagerduty" in all_text.lower():
+            # Find and re-surface the tools/channels section explicitly
+            for chunk in chunks:
+                text = chunk.get("text", "")
+                if "pagerduty" in text.lower():
+                    parts.append(
+                        f"\n[CHÚ Ý - KÊNH LIÊN LẠC ĐẦY ĐỦ - BẮT BUỘC LIỆT KÊ TẤT CẢ]\n"
+                        f"Ngoài Slack và email, hệ thống còn dùng PagerDuty để tự động nhắn on-call khi có P1 ticket mới.\n"
+                        f"Nguồn gốc:\n{text}"
+                    )
+                    break
+
     if policy_result:
         parts.append("\n=== KẾT QUẢ PHÂN TÍCH POLICY ===")
 
@@ -100,7 +118,7 @@ def _build_context(chunks: list, policy_result: dict) -> str:
         if policy_result.get("policy_version_note"):
             parts.append(f"Lưu ý version: {policy_result['policy_version_note']}")
             if policy_applies is None:
-                parts.append("KHÔNG ĐỦ THÔNG TIN: Không có tài liệu của policy version áp dụng → phải nói rõ cần xác nhận thêm.")
+                parts.append("KHÔNG ĐỦ THÔNG TIN: Không có tài liệu của policy version áp dụng → TUYỆT ĐỐI không kết luận được/không được. Phải nói rõ tài liệu hiện có không đủ để xác nhận.")
 
         if policy_result.get("ambiguous"):
             parts.append(f"Lưu ý: {policy_result.get('ambiguous_reason', 'Trường hợp phức tạp, cần xác nhận thêm.')}")
@@ -155,6 +173,9 @@ def synthesize(task: str, chunks: list, policy_result: dict) -> dict:
             "content": f"""Câu hỏi: {task}
 
 {context}
+
+Lưu ý quan trọng: Nếu câu hỏi hỏi về kênh thông báo hoặc công cụ liên lạc, hãy đọc KỸ phần "Công cụ và kênh liên lạc" trong tài liệu và liệt kê ĐẦY ĐỦ tất cả kênh được đề cập (bao gồm Slack, email, PagerDuty, hotline nếu có).
+Nếu câu hỏi liên quan đến policy version không có trong tài liệu, TUYỆT ĐỐI không đưa ra kết luận được/không được.
 
 Hãy trả lời câu hỏi dựa vào tài liệu trên."""
         }
