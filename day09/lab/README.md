@@ -35,6 +35,36 @@ Cùng bài toán **trợ lý nội bộ CS + IT Helpdesk** từ Day 08, nhưng R
 
 ---
 
+## Private Test — Kết quả chấm điểm
+
+**Judge model:** `claude-sonnet-4-6` (Anthropic) — không có model chỉ định từ đề bài, dùng claude-sonnet-4-6 để đảm bảo ước tính có căn cứ và explainable.
+
+### Kết quả grading_run.jsonl
+
+| ID | Điểm | Route | Conf | Nhận xét |
+|----|------|-------|------|---------|
+| gq01 | **7/10** | retrieval | 0.59 | ✅ Slack + email + PagerDuty đủ. ✅ 10 phút = 22:57 đúng. ❌ Thiếu đối tượng escalation (Senior Engineer) |
+| gq02 | **10/10** | policy | 0.57 | ✅ Nhận ra v3 áp dụng. ✅ Abstain đúng — "tài liệu hiện có chỉ có v4, không thể xác nhận." Không hallucinate |
+| gq03 | **10/10** | policy | 0.51 | ✅ 3 người đúng (Line Manager, IT Admin, IT Security). ✅ IT Security là cao nhất |
+| gq04 | **6/6** | policy | 0.46 | ✅ 110% đúng |
+| gq05 | **8/8** | retrieval | 0.65 | ✅ "Tự động escalate lên Senior Engineer" — chuẩn |
+| gq06 | **8/8** | retrieval | 0.54 | ✅ Kết luận đúng, điều kiện đúng, 2 ngày/tuần + Team Lead đúng |
+| gq07 | **10/10** | retrieval | 0.30 | ✅ Abstain đúng — không bịa con số phạt. HITL triggered |
+| gq08 | **8/8** | retrieval | 0.57 | ✅ 90 ngày, 7 ngày cảnh báo, cite it_helpdesk_faq.txt đúng |
+| gq09 | **11/16** | policy | 0.58 | ✅ 3 kênh notification đủ. ✅ Line Manager + IT Admin đúng. ❌ Step 3 nói "Lead Engineer phân công" thay vì "escalate → Senior Engineer". ❌ Không nêu Level 2 không cần IT Security |
+| gq10 | **9/10** | policy | 0.53 | ✅ Kết luận đúng, không bị lừa bởi "lỗi nhà sản xuất". Lý do hơi chung, chưa cite Điều 3 |
+
+**Tổng ước tính: 87/96 raw → ~27.2/30 điểm grading**
+**avg confidence:** 0.53 · **avg latency:** 7.4s · **MCP dùng:** gq03, gq09
+
+### Điểm cần cải thiện để fit private test
+
+1. **gq01 / gq09** — Synthesis mô tả step 3 là "Lead Engineer phân công" thay vì "auto-escalate → Senior Engineer". Cần điều chỉnh synthesis prompt ưu tiên từ khóa "escalate" khi tổng hợp SLA flow.
+2. **gq09** — Chưa kết luận tường minh "Level 2 không cần IT Security" dù context có đủ dữ liệu. Cần thêm rule trong policy prompt.
+3. **gq01** — Không tính thời gian tuyệt đối (22:47 + 10 phút = 22:57). Synthesis có thể thêm bước tính này khi câu hỏi có timestamp cụ thể.
+
+---
+
 ## Cấu trúc repo
 
 ```
@@ -221,10 +251,11 @@ print(result["retrieved_chunks"])
 | **Advanced** | MCP server thật dùng `mcp` library hoặc HTTP server | Bonus +2 |
 
 **Definition of Done:**
-- [ ] `mcp_server.py` có ít nhất 2 tools implement
-- [ ] Policy worker gọi MCP client, không direct call ChromaDB
-- [ ] Trace ghi được `mcp_tool_called` cho từng lần gọi
-- [ ] Supervisor ghi log "chọn MCP vs không chọn MCP" vào `route_reason`
+- [x] `mcp_server.py` có ít nhất 2 tools implement (4 tools: search_kb, get_ticket_info, check_access_permission, create_ticket)
+- [x] Policy worker gọi MCP client, không direct call ChromaDB
+- [x] Trace ghi được `mcp_tool_called` cho từng lần gọi
+- [x] Supervisor ghi log "chọn MCP vs không chọn MCP" vào `route_reason`
+- [x] **Bonus** HTTP server thật (`mcp_server_http.py`) với FastAPI — Swagger UI tại `localhost:8080/docs`
 
 ---
 
@@ -258,12 +289,12 @@ print(result["retrieved_chunks"])
 ```
 
 **Definition of Done:**
-- [ ] `python eval_trace.py` chạy end-to-end với 15 test questions
-- [ ] Trace file có đủ các fields bắt buộc
-- [ ] `docs/routing_decisions.md` điền xong với ít nhất 3 quyết định routing thực tế
-- [ ] `docs/single_vs_multi_comparison.md` điền xong với ít nhất 2 metrics
-- [ ] Mỗi người có file báo cáo cá nhân trong `reports/individual/`
-- [ ] Nhóm có `reports/group_report.md` hoàn chỉnh
+- [x] `python eval_trace.py` chạy end-to-end với 15 test questions
+- [x] Trace file có đủ các fields bắt buộc
+- [x] `docs/routing_decisions.md` điền xong với ít nhất 3 quyết định routing thực tế
+- [x] `docs/single_vs_multi_comparison.md` điền xong với ít nhất 2 metrics
+- [x] Mỗi người có file báo cáo cá nhân trong `reports/individual/`
+- [x] Nhóm có `reports/group_report.md` hoàn chỉnh
 
 ---
 
