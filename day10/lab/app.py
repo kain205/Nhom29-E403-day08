@@ -141,6 +141,50 @@ def _freshness_banner(status: str, detail: dict) -> None:
         st.warning(msg + "  _(file mẫu cũ sẵn — bình thường trong lab)_")
 
 
+def _decision_table(raw_path: Path, quar_path: Optional[Path]) -> None:
+    """Bảng tổng hợp: mỗi raw record + status Kept/Quarantine + reason."""
+    df_raw = _load_csv(raw_path)
+    if df_raw is None:
+        return
+
+    # Build lookup: chunk_id → reason từ quarantine CSV
+    quar_map: dict = {}
+    if quar_path and quar_path.is_file():
+        df_q = _load_csv(quar_path)
+        if df_q is not None and "chunk_id" in df_q.columns:
+            for _, row in df_q.iterrows():
+                quar_map[str(row["chunk_id"])] = row.get("reason", "quarantined")
+
+    statuses, reasons = [], []
+    for _, row in df_raw.iterrows():
+        cid = str(row.get("chunk_id", ""))
+        if cid in quar_map:
+            statuses.append("Quarantine")
+            reasons.append(quar_map[cid])
+        else:
+            statuses.append("Kept")
+            reasons.append("")
+
+    df_raw = df_raw.copy()
+    df_raw.insert(0, "status", statuses)
+    df_raw.insert(1, "reason", reasons)
+
+    def _row_color(row):
+        if row["status"] == "Quarantine":
+            return ["background-color: #fde8e8"] * len(row)
+        return ["background-color: #e8f5e9"] * len(row)
+
+    st.dataframe(
+        df_raw.style.apply(_row_color, axis=1),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "status": st.column_config.TextColumn("status", width="small"),
+            "reason": st.column_config.TextColumn("reason", width="medium"),
+        },
+    )
+
+
 def _show_expectations(stdout: str) -> None:
     exps = _parse_expectations(stdout)
     if not exps:
@@ -208,31 +252,36 @@ with tab1:
             _freshness_banner(*fresh)
 
         st.divider()
-
-        # Three-column table: Raw | Cleaned | Quarantine
         safe = rid_used.replace(":", "-")
-        c_raw, c_clean, c_quar = st.columns(3)
+        quar_path = QUAR_DIR / f"quarantine_{safe}.csv"
 
-        with c_raw:
-            st.markdown(f"**Raw CSV — {man.get('raw_records', '?')} records**")
-            df = _load_csv(RAW_CSV)
-            if df is not None:
-                st.dataframe(df, use_container_width=True, height=300, hide_index=True)
+        # Decision View — toàn bộ raw records + status màu
+        st.markdown(
+            f"**Decision View — {man.get('raw_records','?')} records**  "
+            f"&nbsp; 🟢 Kept: {man.get('cleaned_records','?')}  "
+            f"&nbsp; 🔴 Quarantine: {man.get('quarantine_records','?')}"
+        )
+        _decision_table(RAW_CSV, quar_path)
+
+        st.divider()
+
+        # Chi tiết Cleaned + Quarantine
+        c_clean, c_quar = st.columns(2)
 
         with c_clean:
             st.markdown(f"**Cleaned — {man.get('cleaned_records', '?')} records**")
             df = _load_csv(CLEAN_DIR / f"cleaned_{safe}.csv")
             if df is not None:
-                st.dataframe(df, use_container_width=True, height=300, hide_index=True)
+                st.dataframe(df, use_container_width=True, height=280, hide_index=True)
 
         with c_quar:
             st.markdown(f"**Quarantine — {man.get('quarantine_records', '?')} records**")
-            df = _load_csv(QUAR_DIR / f"quarantine_{safe}.csv")
+            df = _load_csv(quar_path)
             if df is not None:
                 show_cols = [c for c in ["chunk_id", "doc_id", "chunk_text", "reason"]
                              if c in df.columns]
                 st.dataframe(df[show_cols] if show_cols else df,
-                             use_container_width=True, height=300, hide_index=True)
+                             use_container_width=True, height=280, hide_index=True)
 
         if stdout:
             st.divider()

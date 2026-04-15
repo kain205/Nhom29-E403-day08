@@ -10,8 +10,12 @@ from __future__ import annotations
 import csv
 import hashlib
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
+# Rule mới 3: chunk_text tối thiểu sau strip (ký tự)
+MIN_CHUNK_LEN = 20
 
 # Khớp export hợp lệ trong lab (mở rộng khi nhóm thêm doc mới — phải đồng bộ contract).
 ALLOWED_DOC_IDS = frozenset(
@@ -113,6 +117,23 @@ def clean_rows(
 
         if not text:
             quarantine.append({**raw, "reason": "missing_chunk_text"})
+            continue
+
+        # Rule mới 1: chunk_text toàn whitespace sau strip
+        if not text.strip():
+            quarantine.append({**raw, "reason": "empty_chunk_after_strip"})
+            continue
+
+        # Rule mới 2: effective_date nằm trong tương lai
+        if eff_norm and eff_norm > date.today().isoformat():
+            quarantine.append({**raw, "reason": "future_effective_date",
+                               "effective_date_normalized": eff_norm})
+            continue
+
+        # Rule mới 3: chunk_text quá ngắn, không có giá trị thông tin
+        if len(text.strip()) < MIN_CHUNK_LEN:
+            quarantine.append({**raw, "reason": "chunk_too_short",
+                               "chunk_len": len(text.strip())})
             continue
 
         key = _norm_text(text)
